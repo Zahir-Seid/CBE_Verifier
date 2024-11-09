@@ -2,12 +2,12 @@
 
 ## Overview
 
-`CBE_verifier` is a Python library for validating transaction data against a digital transaction record. This library is designed to simplify the verification of transaction details by extracting information from uploaded screenshots and comparing it with provided data. It is built with ease of use and accessibility in mind, making it ideal for scenarios where quick and reliable verification of transaction details is needed.
+`CBE_verifier` is a Python library for validating transaction data by extracting information from transaction screenshots and comparing it with provided reference data. It offers streamlined verification with a clear result format, ideal for applications needing reliable, quick validation of transaction details.
 
 ### Key Features
-- **Transaction Data Extraction**: Extracts key transaction details such as transaction ID, payer name, receiver name, date, and amount from a screenshot.
-- **Automated Verification**: Compares the extracted transaction data against provided reference data to detect mismatches.
-- **Clear Result Feedback**: Returns a clean and concise verification result, indicating either "verified" or specifying any mismatched fields.
+- **Transaction Data Extraction**: Extracts essential transaction details such as transaction ID, payer, receiver, date, and amount from an image.
+- **Automated Verification**: Compares extracted data against user-provided reference data to identify any mismatches.
+- **Concise Results**: Returns a simple verification result indicating either "verified" or specifying any mismatched fields.
 
 ## Installation
 
@@ -19,22 +19,30 @@ pip install CBE_verifier
 
 ## Usage
 
-To use `CBE_verifier`, follow these steps to initialize the verification process and receive results:
+To use `CBE_verifier`, follow these steps:
 
 ### 1. Import the Library
 
 ```python
+from cbe_verifier.detector import TransactionIDDetector
 from cbe_verifier.verifier import TransactionVerifier
 ```
 
 ### 2. Initialize and Run Verification
 
-1. **Prepare Data**: Prepare a dictionary of reference transaction details (`provided_data`) and a path to the transaction screenshot image.
-2. **Verification**: Instantiate `TransactionVerifier` and call the `verify_transaction` method with the provided data and image path.
+1. **Prepare Data**: Define a dictionary of reference transaction details (`provided_data`) and specify the path to the transaction screenshot (`image_path`).
+2. **Verify**: Use `TransactionIDDetector` to extract data from the image, then pass the extracted and provided data to `TransactionVerifier`.
 
 ### Example Usage
 
 ```python
+from cbe_verifier.detector import TransactionIDDetector
+from cbe_verifier.verifier import TransactionVerifier, VerifySuccess
+
+# Initialize detector and verifier
+detector = TransactionIDDetector()
+verifier = TransactionVerifier()
+
 # Reference data to verify against
 provided_data = {
     "transaction_id": "FTxxxxxxxxxx",
@@ -47,47 +55,58 @@ provided_data = {
 # Path to the transaction screenshot
 image_path = "image.png"
 
-# Instantiate and verify
-verifier = TransactionVerifier()
-result = verifier.verify_transaction(provided_data, image_path)
+# Step 1: Detect transaction details from the image
+detection_result = detector.detect_transaction_id(image_path)
 
-# Check result
-if result.is_verified:
-    print("Verification Success")
+# Step 2: Prepare extracted data
+extracted_data = {
+    "transaction_id": detection_result.qr_transaction_id or detection_result.text_transaction_id,
+    "payer": detection_result.payer,
+    "receiver": detection_result.receiver,
+    "date": detection_result.date,
+    "amount": detection_result.amount
+}
+
+# Step 3: Verify extracted data against provided data
+verification_result = verifier.verify_transaction(provided_data, extracted_data)
+
+# Step 4: Check verification outcome
+if isinstance(verification_result, VerifySuccess):
+    print("Verification Success: All details match!")
 else:
     print("Verification Failed. Mismatches found:")
-    print(result.details)
+    for key, details in verification_result.mismatches.items():
+        print(f"{key}: Provided - {details['provided']}, Extracted - {details['extracted']}")
 ```
 
 ### Result Structure
-The verification result will be returned as either:
+The verification result will be one of the following:
 - `Verification Success`: All provided data matches extracted data.
-- `Verification Failure`: A dictionary specifying any mismatched fields, including expected and extracted values.
+- `Verification Failure`: A dictionary listing mismatched fields, showing both expected and extracted values.
 
-## Functions and Classes
+## Classes and Functions
 
 ### 1. `TransactionVerifier`
-The main interface for conducting verification. Contains:
-- **verify_transaction(provided_data, image_path)**: Conducts verification using provided reference data and a screenshot image.
+The main interface for performing verification. Contains:
+- **verify_transaction(provided_data, extracted_data)**: Compares provided data with extracted data, returning verification status.
 
-### 2. `VerifyFailure` and `VerifySuccess` Classes
-These classes encapsulate verification results:
-- **VerifyFailure**: Contains details of mismatched fields.
-- **VerifySuccess**: Indicates a successful verification when all fields match.
+### 2. `VerifyFailure` and `VerifySuccess`
+- **VerifyFailure**: Contains mismatched details if any fields don’t match.
+- **VerifySuccess**: Returned if all fields match, confirming verification.
 
-### 3. Utility Functions (`utils.py`)
-Provides validation utilities:
-- **validate_txn_id**: Checks if a transaction ID is valid.
+### 3. Utility Functions (Optional, in `utils.py`)
+Provides validation functions:
+- **validate_txn_id**: Validates the format of a transaction ID.
 - **validate_acc_no**: Validates account number format.
 
 ## Error Handling
 
-- **Invalid Data**: Raises a `ValueError` if required fields are missing or incorrectly formatted.
-- **Image File Issues**: Provides errors if the image is invalid or unreadable.
+- **Invalid Data**: Raises `ValueError` for missing or incorrectly formatted required fields.
+- **Image File Issues**: Provides an error if the image file is invalid or unreadable.
 
 ## Example Test Code
 
-To test the library, create a test file with `provided_data` and an `image_path` as in the example usage. Use various scenarios to validate both successful and failed verification cases.
+To test, create a script with `provided_data` and an `image_path` as shown in the usage example. This allows you to test both successful and failed verification cases.
 
 ## License
 
@@ -95,4 +114,4 @@ This library is open-source under the MIT license.
 
 ## Contributions
 
-We welcome contributions! Please submit a pull request with any improvements, features, or bug fixes.
+Contributions are welcome! Please submit a pull request with any improvements, features, or bug fixes.
