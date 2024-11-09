@@ -24,7 +24,7 @@ To use `CBE_verifier`, follow these steps to initialize the verification process
 ### 1. Import the Library
 
 ```python
-from CBE_verifier import TransactionVerifier
+from cbe_verifier.verifier import TransactionVerifier
 ```
 
 ### 2. Initialize and Run Verification
