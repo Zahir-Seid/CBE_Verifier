@@ -2,19 +2,21 @@
 
 ## Overview
 
-`CBE_verifier` is a Python library for validating transaction data by extracting information from transaction screenshots and comparing it with provided reference data. It offers streamlined verification with a clear result format, ideal for applications needing reliable, quick validation of transaction details.
+`CBE_Verifier` is a Python library designed to validate transaction data by extracting information from transaction screenshots or official receipts (PDF) and comparing it with provided reference data. It offers streamlined verification with clear result formats, ideal for applications requiring reliable, quick validation of transaction details from the Commercial Bank of Ethiopia (CBE).
 
 ### Key Features
-- **Transaction Data Extraction**: Extracts essential transaction details such as transaction ID, payer, receiver, date, and amount from an image.
-- **Automated Verification**: Compares extracted data against user-provided reference data to identify any mismatches.
-- **Concise Results**: Returns a simple verification result indicating either "verified" or specifying any mismatched fields.
+- **Transaction Data Extraction**: Extracts essential transaction details such as transaction ID, payer, receiver, date, and amount from images or PDF receipts using OCR and PDF parsing.
+- **Official Receipt Verification**: Fetches and parses official CBE PDF receipts online based on transaction ID and account suffix for authoritative verification.
+- **Automated Verification**: Compares extracted data against user-provided reference data, identifying any mismatches.
+- **Concise Results**: Returns simple verification results indicating either success or specifying mismatched fields with detailed reasons.
 
 ## Installation
 
-Install `CBE_verifier` via pip:
+Install `CBE_Verifier` via pip:
 
 ```bash
-pip install CBE_verifier
+pip install CBE_Verifier
+
 ```
 
 ## Usage
@@ -24,8 +26,9 @@ To use `CBE_verifier`, follow these steps:
 ### 1. Import the Library
 
 ```python
-from cbe_verifier.detector import TransactionIDDetector
-from cbe_verifier.verifier import TransactionVerifier
+from cbe_verifier.detector import TransactionIDDetector, parse_cbe_receipt, VerifyResult
+from cbe_verifier.verifier import TransactionVerifier, VerifySuccess, VerifyFailure
+
 ```
 
 ### 2. Initialize and Run Verification
@@ -37,7 +40,7 @@ from cbe_verifier.verifier import TransactionVerifier
 
 ```python
 from cbe_verifier.detector import TransactionIDDetector
-from cbe_verifier.verifier import TransactionVerifier, VerifySuccess
+from cbe_verifier.verifier import TransactionVerifier
 
 # Initialize detector and verifier
 detector = TransactionIDDetector()
@@ -60,7 +63,7 @@ detection_result = detector.detect_transaction_id(image_path)
 
 # Step 2: Prepare extracted data
 extracted_data = {
-    "transaction_id": detection_result.qr_transaction_id or detection_result.text_transaction_id,
+    "transaction_id": detection_result.text_transaction_id,
     "payer": detection_result.payer,
     "receiver": detection_result.receiver,
     "date": detection_result.date,
@@ -71,38 +74,60 @@ extracted_data = {
 verification_result = verifier.verify_transaction(provided_data, extracted_data)
 
 # Step 4: Check verification outcome
-if isinstance(verification_result, VerifySuccess):
-    print("Verification Success: All details match!")
+if verification_result[0] is True:
+    print("Verification Success: Details match.")
 else:
     print("Verification Failed. Mismatches found:")
-    for key, details in verification_result.mismatches.items():
-        print(f"{key}: Provided - {details['provided']}, Extracted - {details['extracted']}")
+    for key, mismatch in verification_result[1]["mismatches"].items():
+        print(f"{key}: Provided - {mismatch['provided']}, Extracted - {mismatch['official']}")
 ```
 
 ### Result Structure
-The verification result will be one of the following:
-- `Verification Success`: All provided data matches extracted data.
-- `Verification Failure`: A dictionary listing mismatched fields, showing both expected and extracted values.
+
+- **Local Verification**:
+  - Returns `(True,)` if all provided data matches extracted data.
+  - Returns `(True, extracted_data)` if `include_data=True`.
+  - Returns `(False, {"reason": "VERIFICATION_FAILED", "mismatches": {...}})` if any mismatch occurs.
+
+- **Official Verification**:
+  - Returns `True` or `(True, extracted_data)` on success.
+  - Returns `VerifyFailure` instance on failure, with `.type` and `.mismatches` explaining the error.
 
 ## Classes and Functions
 
-### 1. `TransactionVerifier`
-The main interface for performing verification. Contains:
-- **verify_transaction(provided_data, extracted_data)**: Compares provided data with extracted data, returning verification status.
+### `TransactionVerifier`
 
-### 2. `VerifyFailure` and `VerifySuccess`
-- **VerifyFailure**: Contains mismatched details if any fields don’t match.
-- **VerifySuccess**: Returned if all fields match, confirming verification.
+- `verify_cbe(reference: str, account_suffix: str)`: Async method that fetches and parses the official CBE PDF receipt.
+- `verify_transaction(provided_data: dict, extracted_data: dict, include_data: bool = False)`: Compares provided and extracted data for local verification.
+- `verify_against_official(provided_data: dict, include_data: bool = False)`: Async method to verify provided data against the official online receipt.
 
-### 3. Utility Functions (Optional, in `utils.py`)
+### `VerifyFailure`
+
+Represents a verification failure with error type and mismatch details.
+
+### `VerifySuccess`
+
+Represents a successful verification with verified details.
+
+### `TransactionIDDetector`
+
+Extracts transaction details from images or PDFs using OCR (`easyocr`) and PDF parsing (`pdfplumber`).
+
+### `parse_cbe_receipt`
+
+Parse the official CBE PDF receipt from raw bytes, returning a `VerifyResult`.
+
+
+### Utility Functions (Optional, in `utils.py`)
 Provides validation functions:
 - **validate_txn_id**: Validates the format of a transaction ID.
 - **validate_acc_no**: Validates account number format.
 
 ## Error Handling
 
-- **Invalid Data**: Raises `ValueError` for missing or incorrectly formatted required fields.
-- **Image File Issues**: Provides an error if the image file is invalid or unreadable.
+- **Network or Parsing Issues**: Raises detailed exceptions or returns failure objects explaining the problem.
+- **Data Extraction Issues**: Logs warnings and returns partial or failure results when unable to extract required fields.
+- **Invalid or Missing Fields**: Returns `VerifyFailure` with `MISSING_FIELDS` if required fields are missing.
 
 ## Example Test Code
 
