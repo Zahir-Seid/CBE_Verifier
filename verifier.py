@@ -45,7 +45,6 @@ class TransactionVerifier:
             content_type = response.headers.get('Content-Type', '').lower()
             if response.status_code == 200 and 'application/pdf' in content_type:
                 logger.info("Successfully fetched official CBE PDF receipt.")
-                # parse_cbe_receipt is assumed async or sync depending on your code
                 result = await parse_cbe_receipt(response.content) if callable(getattr(parse_cbe_receipt, "__await__", None)) else parse_cbe_receipt(response.content)
                 return result
             else:
@@ -56,56 +55,61 @@ class TransactionVerifier:
             raise ValueError("Network error while requesting CBE receipt.") from e
 
     @staticmethod
-    def verify_transaction(provided_data: dict, extracted_data: dict) -> Union[VerifyFailure, VerifySuccess]:
+    def verify_transaction(provided_data: dict, extracted_data: dict, include_data: bool = False) -> tuple[bool, Optional[dict]]:
         """
-        Compare only the transaction_id and amount from provided data with official receipt.
+        Verifies transaction ID and amount match. 
+        By default, only returns success boolean. Optionally returns parsed data.
 
         Args:
-            provided_data (dict): The original values (manual input or from image).
-            extracted_data (dict): Parsed values from the official CBE receipt.
+            provided_data (dict): Developer-provided transaction ID and expected amount.
+            extracted_data (dict): Parsed values from official receipt.
+            include_data (bool): If True, return extracted data on success.
 
         Returns:
-            Union[VerifyFailure, VerifySuccess]: Verification result.
+            tuple: 
+                (True, ) if success,
+                (True, extracted_data) if include_data=True,
+                (False, {"reason": ..., "mismatches": {...}}) if failed
         """
         mismatches = {}
 
-        # Check transaction ID
-        provided_tx_id = str(provided_data.get("transaction_id", "")).strip()
-        official_tx_id = str(extracted_data.get("transaction_id", "")).strip()
-        if provided_tx_id != official_tx_id:
+        # Match transaction_id
+        provided_txn_id = provided_data.get("transaction_id")
+        extracted_txn_id = extracted_data.get("transaction_id")
+        if not provided_txn_id or not extracted_txn_id or str(provided_txn_id).strip() != str(extracted_txn_id).strip():
             mismatches["transaction_id"] = {
-                "provided": provided_tx_id,
-                "official": official_tx_id
+                "provided": provided_txn_id,
+                "official": extracted_txn_id
             }
 
-        # Check amount, normalizing both sides
+        # Match amount
+        provided_amount_raw = provided_data.get("amount")
+        extracted_amount = extracted_data.get("amount")
+
         try:
-            provided_amt = float(str(provided_data.get("amount", "0")).replace(",", ""))
-            official_amt = float(str(extracted_data.get("amount", "0")).replace(",", ""))
-            if provided_amt != official_amt:
-                mismatches["amount"] = {
-                    "provided": provided_data.get("amount"),
-                    "official": extracted_data.get("amount")
-                }
-        except Exception as e:
+            provided_amount = float(str(provided_amount_raw).replace(",", "").strip())
+        except (ValueError, TypeError):
+            provided_amount = None
+
+        if provided_amount is None or extracted_amount is None or round(provided_amount, 2) != round(float(extracted_amount), 2):
             mismatches["amount"] = {
-                "provided": provided_data.get("amount"),
-                "official": extracted_data.get("amount"),
-                "error": f"Amount parsing error: {e}"
+                "provided": provided_amount_raw,
+                "official": extracted_amount
             }
 
+        # Final result
         if mismatches:
-            logger.warning("Verification failed. Mismatches found.")
-            return VerifyFailure("VERIFICATION_FAILED", mismatches)
+            return False, {
+                "reason": "VERIFICATION_FAILED",
+                "mismatches": mismatches
+            }
 
-        logger.info("Verification passed. Data matches official receipt.")
-        return VerifySuccess(**extracted_data)
+        return (True, extracted_data) if include_data else (True, )
+
+
 
     @classmethod
-    async def verify_against_official(cls, provided_data: dict) -> Union[VerifyFailure, VerifySuccess]:
-        """
-        Async version: full verification
-        """
+    async def verify_against_official(cls, provided_data: dict, include_data: bool = False) -> Union[bool, tuple[bool, dict], VerifyFailure]:
         reference = provided_data.get("transaction_id")
         suffix = provided_data.get("suffix")
 
@@ -117,9 +121,17 @@ class TransactionVerifier:
             result = await cls.verify_cbe(reference, suffix)
 
             if getattr(result, 'success', False):
-                # assuming parsed data is in result.details
                 extracted_data = getattr(result, 'details', {}) or {}
-                return cls.verify_transaction(provided_data, extracted_data)
+
+                verified = cls.verify_transaction(provided_data, extracted_data, include_data=include_data)
+
+                if verified is True:
+                    return True
+                elif isinstance(verified, tuple) and verified[0] is True:
+                    return verified
+                else:
+                    logger.warning("Verification failed. Data mismatch.")
+                    return VerifyFailure("VERIFICATION_FAILED", {"provided": provided_data, "extracted": extracted_data})
             else:
                 logger.error("Receipt fetch or parse failed.")
                 error_details = getattr(result, 'details', {}).get("error") if hasattr(result, 'details') else None
